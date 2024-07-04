@@ -1,4 +1,4 @@
-!pip install -q tensorflow_recommenders
+#Deep Neural Network-based Movie Recommendation System using TensorFlow Recommenders:
 
 from typing import Dict, Text
 
@@ -76,7 +76,111 @@ index.index_from_dataset(
     movies.batch(100).map(lambda title: (title, model.movie_model(title)))
 )
 
+# Get some recommendations
+_, titles = index(np.array(["20"]))
+print(f"Top 3 recommendations for user 20: {titles[0, :4]}")
+
+import matplotlib.pyplot as plt
+
+# Train the model and capture the history
+history = model.fit(ratings.batch(4096), epochs=3)
+
+# Plot the loss over epochs
+plt.plot(history.history['loss'])
+plt.title('Model Loss - Deep Neural Network')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend(['Train Loss'], loc='upper right')
+plt.show()
+
+#===============================================================================================================
+
+#Matrix Factorization-based Movie Recommendation System using TensorFlow Recommenders:
+
+
+!pip install -q tensorflow_recommenders
+
+import numpy as np
+import tensorflow as tf
+import tensorflow_datasets as tfds
+import tensorflow_recommenders as tfrs
+from typing import Dict, Text
+
+# Load datasets
+ratings = tfds.load('movielens/100k-ratings', split="train")
+movies = tfds.load('movielens/100k-movies', split="train")
+
+# Select the basic features
+ratings = ratings.map(lambda x: {
+    "movie_title": x["movie_title"],
+    "user_id": x["user_id"]
+})
+movies = movies.map(lambda x: x["movie_title"])
+
+# Create vocabulary for user IDs and movie titles
+user_ids_vocabulary = tf.keras.layers.StringLookup(mask_token=None)
+user_ids_vocabulary.adapt(ratings.map(lambda x: x["user_id"]))
+
+movie_titles_vocabulary = tf.keras.layers.StringLookup(mask_token=None)
+movie_titles_vocabulary.adapt(movies)
+
+# Define the matrix factorization model
+class MatrixFactorizationModel(tfrs.Model):
+    def __init__(self, user_model: tf.keras.Model, movie_model: tf.keras.Model, task: tfrs.tasks.Retrieval):
+        super().__init__()
+        self.user_model = user_model
+        self.movie_model = movie_model
+        self.task = task
+
+    def compute_loss(self, features: Dict[Text, tf.Tensor], training=False) -> tf.Tensor:
+        user_embeddings = self.user_model(features["user_id"])
+        movie_embeddings = self.movie_model(features["movie_title"])
+        return self.task(user_embeddings, movie_embeddings)
+
+# Define a user model using matrix factorization
+user_model = tf.keras.Sequential([
+    user_ids_vocabulary,
+    tf.keras.layers.Embedding(user_ids_vocabulary.vocab_size(), 64)
+])
+
+# Define a movie model using matrix factorization
+movie_model = tf.keras.Sequential([
+    movie_titles_vocabulary,
+    tf.keras.layers.Embedding(movie_titles_vocabulary.vocab_size(), 64)
+])
+
+# Define the retrieval task
+task = tfrs.tasks.Retrieval(metrics=tfrs.metrics.FactorizedTopK(
+    movies.batch(128).map(movie_model)
+))
+
+# Create a matrix factorization retrieval model
+model = MatrixFactorizationModel(user_model, movie_model, task)
+model.compile(optimizer=tf.keras.optimizers.Adagrad(0.1))
+
+# Train the model
+model.fit(ratings.batch(4096), epochs=5)
+
+# Set up brute-force search for retrieval
+index = tfrs.layers.factorized_top_k.BruteForce(model.user_model)
+index.index_from_dataset(
+    movies.batch(100).map(lambda title: (title, model.movie_model(title)))
+)
 
 # Get some recommendations
-_, titles = index(np.array(["26"]))
-print(f"Top 3 recommendations for user 26: {titles[0, :3]}")
+_, titles = index(np.array(["42"]))
+print(f"Top 3 recommendations for user 42: {titles[0, :3]}")
+
+# Train the model and capture the history
+history = model.fit(ratings.batch(4096), epochs=5)
+
+# Plot the loss over epochs
+plt.plot(history.history['loss'])
+plt.title('Model Loss - Matrix Factorization')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend(['Train Loss'], loc='upper right')
+plt.show()
+
+
+
